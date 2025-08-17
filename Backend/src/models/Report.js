@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const ReportSchema = new mongoose.Schema({
+const reportSchema = new mongoose.Schema({
   reporterId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
@@ -8,24 +8,45 @@ const ReportSchema = new mongoose.Schema({
   },
   location: {
     address: { type: String, required: true },
-    coordinates: { lat: Number, lng: Number },
+    coordinates: {
+      lat: Number,
+      lng: Number,
+    },
   },
-  photos: [String],
-  // ✅ FIXED: Define billboardDetails as nested object, not String
   billboardDetails: {
-    size: { type: String },
-    type: { type: String },
-    content: { type: String },
+    size: { type: String, required: true },
+    type: { type: String, required: true },
+    content: { type: String }, // ✅ Made optional
   },
-  dateReported: { type: Date, default: Date.now },
-  dateObserved: Date,
+  dateObserved: {
+    type: Date,
+    required: true,
+  },
+  dateReported: {
+    type: Date,
+    default: Date.now,
+  },
   status: {
     type: String,
     enum: ["pending", "verified", "rejected"],
     default: "pending",
   },
+  // ✅ NEW: Add image fields
+  imageUrl: {
+    type: String, // Store the URL/path to the image
+    required: function () {
+      // Make image required only for public users
+      return this.reporterId && this.reporterId.role === "public";
+    },
+  },
+  imageFileName: {
+    type: String, // Store original filename
+  },
+  verifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  },
   verificationNotes: String,
-  verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
-module.exports = mongoose.model("Report", ReportSchema);
+module.exports = mongoose.model("Report", reportSchema);

@@ -7,6 +7,8 @@ export default function AuthPage() {
   const router = useRouter();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -16,9 +18,14 @@ export default function AuthPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // ✅ CRITICAL: Set loading state first
     setLoading(true);
+    setError("");
 
     try {
+      console.log("🔄 Attempting authentication...");
+
       let response;
       if (isLogin) {
         response = await authAPI.login({
@@ -29,49 +36,62 @@ export default function AuthPage() {
         response = await authAPI.register(formData);
       }
 
-      const { token, user } = response.data;
+      console.log("✅ Auth response received:", response.status);
 
-      // Store auth data in localStorage
-      localStorage.setItem("authToken", token);
-      localStorage.setItem("currentUser", JSON.stringify(user));
+      // ✅ Check if we have valid response data
+      if (response.data && response.data.token && response.data.user) {
+        const { token, user } = response.data;
 
-      console.log("Success:", user);
-      router.push("/dashboard");
+        // Store auth data
+        localStorage.setItem("authToken", token);
+        localStorage.setItem("currentUser", JSON.stringify(user));
+
+        console.log("✅ Auth data stored, redirecting...");
+
+        // ✅ Redirect immediately after successful auth
+        router.push("/dashboard");
+      } else {
+        throw new Error("Invalid response format");
+      }
     } catch (error) {
-      console.error("Auth error:", error);
-      alert(error.response?.data?.error || "Authentication failed");
+      console.error("❌ Auth failed:", error);
+
+      const errorMessage =
+        error.response?.data?.error || error.message || "Authentication failed";
+      setError(errorMessage);
     } finally {
+      // ✅ CRITICAL: Always reset loading state
       setLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
-          📊 Billboard Reporter
-        </h1>
+  const handleInputChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+  };
 
-        <div className="flex mb-6">
-          <button
-            onClick={() => setIsLogin(true)}
-            className={`flex-1 py-2 px-4 rounded-l-lg ${
-              isLogin ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-            }`}
-          >
-            Login
-          </button>
-          <button
-            onClick={() => setIsLogin(false)}
-            className={`flex-1 py-2 px-4 rounded-r-lg ${
-              !isLogin ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-            }`}
-          >
-            Register
-          </button>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-100 to-indigo-200 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">
+            📊 Billboard Reports
+          </h1>
+          <p className="text-gray-600">
+            {isLogin ? "Sign in to your account" : "Create your account"}
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            <p className="text-sm">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
           {!isLogin && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -79,30 +99,30 @@ export default function AuthPage() {
               </label>
               <input
                 type="text"
-                autoComplete="on"
+                name="name"
                 value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                placeholder="Enter your full name"
                 required={!isLogin}
+                disabled={loading}
               />
             </div>
           )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email
+              Email Address
             </label>
             <input
               type="email"
-              autoComplete="on"
+              name="email"
               value={formData.email}
-              onChange={(e) =>
-                setFormData({ ...formData, email: e.target.value })
-              }
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+              onChange={handleInputChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+              placeholder="Enter your email"
               required
+              disabled={loading}
             />
           </div>
 
@@ -112,34 +132,31 @@ export default function AuthPage() {
             </label>
             <input
               type="password"
+              name="password"
               value={formData.password}
-              onChange={(e) =>
-                setFormData({ ...formData, password: e.target.value })
-              }
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+              onChange={handleInputChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+              placeholder="Enter your password"
               required
-              minLength={6}
+              disabled={loading}
             />
           </div>
 
           {!isLogin && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                I am a:
+                Account Type
               </label>
               <select
+                name="role"
                 value={formData.role}
-                onChange={(e) =>
-                  setFormData({ ...formData, role: e.target.value })
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                required={!isLogin}
+                disabled={loading}
               >
-                <option value="public">
-                  👤 Public User (Report Billboards)
-                </option>
-                <option value="organization">
-                  🏢 Government Official (Verify Reports)
-                </option>
+                <option value="public">👤 Public User</option>
+                <option value="organization">🏢 Government Official</option>
               </select>
             </div>
           )}
@@ -147,18 +164,43 @@ export default function AuthPage() {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-3 px-4 rounded-lg font-medium transition duration-200 ${
+            className={`w-full py-3 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 ${
               loading
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700 text-white"
+                ? "bg-gray-400 cursor-not-allowed text-white"
+                : "bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl"
             }`}
           >
-            {loading ? "Please wait..." : isLogin ? "Login" : "Register"}
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                {isLogin ? "Signing In..." : "Creating Account..."}
+              </>
+            ) : (
+              <>{isLogin ? "🔓 Sign In" : "✨ Create Account"}</>
+            )}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-xs text-gray-500">
-          <p>🔒 Real authentication with encrypted passwords</p>
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError("");
+              setFormData({
+                name: "",
+                email: "",
+                password: "",
+                role: "public",
+              });
+            }}
+            className="text-blue-600 hover:text-blue-800 font-medium transition duration-200"
+            disabled={loading}
+          >
+            {isLogin
+              ? "Don't have an account? Create one"
+              : "Already have an account? Sign in"}
+          </button>
         </div>
       </div>
     </div>

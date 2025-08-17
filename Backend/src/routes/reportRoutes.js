@@ -5,16 +5,27 @@ const {
   updateReport,
   deleteReport,
 } = require("../controllers/reportController");
-const { authenticateToken } = require("../middlewares/auth");
+const authMiddleware = require("../middlewares/auth");
+const { upload, handleMulterErrors } = require("../middlewares/imageUpload");
 
 const router = express.Router();
 
-// All report routes need authentication
-router.use(authenticateToken);
+// ✅ GET all reports
+router.get("/", authMiddleware, getReports);
 
-router.get("/", getReports);
-router.post("/", createReport);
-router.put("/:id", updateReport);
-router.delete("/:id", deleteReport);
+// ✅ POST create report with image upload
+router.post(
+  "/",
+  authMiddleware, // Check authentication first
+  upload, // Handle file upload
+  handleMulterErrors, // Handle upload errors
+  createReport // Process the report
+);
+
+// ✅ PUT update report
+router.put("/:id", authMiddleware, updateReport);
+
+// ✅ DELETE report
+router.delete("/:id", authMiddleware, deleteReport);
 
 module.exports = router;

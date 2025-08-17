@@ -1,104 +1,126 @@
 const express = require("express");
 const cors = require("cors");
 const connectDB = require("./src/config/database");
-const authRoutes = require("./src/routes/authRoutes");
-const reportRoutes = require("./src/routes/reportRoutes");
+const cloudinary = require("cloudinary").v2; // ✅ Add Cloudinary import
 require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
-// Connect to MongoDB
-connectDB();
-
-// IMPORTANT: Middleware order matters!
-app.use(
-  cors({
-    origin: ["http://localhost:3000", "http://localhost:3001"],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// Parse JSON requests - MUST be before routes
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
-
-// Add request logging middleware
-app.use((req, res, next) => {
-  console.log(`📡 ${req.method} ${req.path}`);
-  if (req.method === "POST" || req.method === "PUT") {
-    console.log("Request body size:", JSON.stringify(req.body).length);
-  }
-  next();
+// ✅ Configure Cloudinary (add this)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// ✅ Function to test Cloudinary connection
+const testCloudinaryConnection = async () => {
+  try {
+    console.log('🌤️ Testing Cloudinary connection...');
+    
+    // Simple API call to test connectivity
+    const result = await cloudinary.api.ping();
+    
+    if (result && result.status === 'ok') {
+      console.log('✅ Cloudinary connected successfully!');
+      console.log(`📂 Cloud Name: ${process.env.CLOUDINARY_CLOUD_NAME}`);
+      console.log(`🔑 API Key: ${process.env.CLOUDINARY_API_KEY?.substring(0, 8)}...`);
+    } else {
+      console.log('⚠️ Cloudinary connection test returned:', result);
+    }
+  } catch (error) {
+    console.error('❌ Cloudinary connection failed:');
+    console.error('Error:', error.message);
+    
+    if (error.message.includes('Must supply api_key')) {
+      console.error('🔑 Missing CLOUDINARY_API_KEY in .env file');
+    } else if (error.message.includes('Must supply api_secret')) {
+      console.error('🔐 Missing CLOUDINARY_API_SECRET in .env file');
+    } else if (error.message.includes('Must supply cloud_name')) {
+      console.error('☁️ Missing CLOUDINARY_CLOUD_NAME in .env file');
+    }
+  }
+};
+
+// ✅ API endpoint to check Cloudinary status
+app.get('/api/cloudinary-status', async (req, res) => {
+  try {
+    const result = await cloudinary.api.ping();
+    
+    res.json({
+      success: true,
+      message: 'Cloudinary is connected and working!',
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      status: result.status
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Cloudinary connection failed',
+      error: error.message
+    });
+  }
+});
+
+// Middleware
+app.use(cors({
+  origin: ["http://localhost:3000", "http://localhost:3001"],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Routes
+const authRoutes = require("./src/routes/authRoutes");
+const reportRoutes = require("./src/routes/reportRoutes");
+
 app.use("/api/auth", authRoutes);
 app.use("/api/reports", reportRoutes);
 
 // Health check route
 app.get("/api/health", (req, res) => {
-  res.json({
-    message: "🎯 Billboard API is running!",
+  res.json({ 
+    status: "Server is running!", 
     timestamp: new Date().toISOString(),
-    version: "1.0.0",
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// Root route
-app.get("/", (req, res) => {
-  res.json({
-    message: "Billboard Reporting API",
-    status: "Active",
-    endpoints: [
-      "POST /api/auth/register - Register new user",
-      "POST /api/auth/login - Login user",
-      "GET /api/reports - Get reports (auth required)",
-      "POST /api/reports - Create report (auth required)",
-      "PUT /api/reports/:id - Update report (organization only)",
-    ],
-  });
-});
+// Start server
+const startServer = async () => {
+  try {
+    // Connect to database
+    await connectDB();
+    
+    // ✅ Test Cloudinary connection on startup
+    await testCloudinaryConnection();
+    
+    app.listen(PORT, () => {
+      console.log("🎉 ==============================================");
+      console.log("🚀 Billboard Reporting API Server Started!");
+      console.log(`📡 Server: http://localhost:${PORT}`);
+      console.log(`🔗 Health: http://localhost:${PORT}/api/health`);
+      console.log(`🌤️ Cloudinary: http://localhost:${PORT}/api/cloudinary-status`);
+      console.log("🎉 ==============================================");
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+};
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error("❌ Server Error:", err.stack);
-  res.status(500).json({
-    error: "Something went wrong!",
-    message:
-      process.env.NODE_ENV === "development"
-        ? err.message
-        : "Internal server error",
-  });
-});
+// Graceful shutdown handling
+const gracefulShutdown = (signal) => {
+  console.log(`\n👋 ${signal} received. Shutting down gracefully...`);
+  process.exit(0);
+};
 
-// ✅ Express v5 compatible - named wildcard
-app.use((req, res) => {
-  res.status(404).json({
-    error: "Route not found",
-    path: req.originalUrl,
-    method: req.method,
-  });
-});
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Start the server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📋 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🔐 Auth endpoints: http://localhost:${PORT}/api/auth/`);
-  console.log(`📊 Reports endpoints: http://localhost:${PORT}/api/reports/`);
-  console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
-});
-
-// Graceful shutdown
-process.on("SIGTERM", () => {
-  console.log("👋 SIGTERM received. Shutting down gracefully...");
-  process.exit(0);
-});
-
-process.on("SIGINT", () => {
-  console.log("👋 SIGINT received. Shutting down gracefully...");
-  process.exit(0);
-});
+startServer();

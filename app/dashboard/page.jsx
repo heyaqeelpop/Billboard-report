@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useDropzone } from "react-dropzone";
 import { reportsAPI } from "../../lib/api";
 
 export default function DashboardPage() {
@@ -10,6 +11,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false); // ✨ Success popup state
   const [stats, setStats] = useState({
     total: 0,
     pending: 0,
@@ -20,6 +22,25 @@ export default function DashboardPage() {
     location: { address: "" },
     billboardDetails: { size: "", type: "", content: "" },
     dateObserved: "",
+    imageFile: null,
+  });
+
+  // ✅ Drag and drop setup for image upload
+  const onDrop = useCallback((acceptedFiles) => {
+    if (acceptedFiles && acceptedFiles.length > 0) {
+      const file = acceptedFiles[0];
+      setNewReport((prev) => ({ ...prev, imageFile: file }));
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "image/jpeg": [".jpeg", ".jpg"],
+      "image/png": [".png"],
+    },
+    multiple: false,
+    maxSize: 5 * 1024 * 1024, // 5MB limit
   });
 
   const loadReports = useCallback(async () => {
@@ -60,40 +81,117 @@ export default function DashboardPage() {
     try {
       await reportsAPI.deleteReport(id);
       setReports((reports) => reports.filter((r) => r._id !== id));
-      alert("Report deleted successfully!");
-      await loadReports();
+      setStats((prev) => ({
+        ...prev,
+        total: prev.total - 1,
+        pending: prev.pending - 1,
+      }));
+      // ✨ Show success popup for deletion
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2500);
     } catch (error) {
       alert("Failed to delete. Only pending reports can be deleted by you.");
     }
   };
 
+  // ✅ Updated validation: Image REQUIRED, Description OPTIONAL
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (submitLoading) return;
 
-    if (!newReport.location.address || !newReport.billboardDetails.content) {
-      alert("Please fill in all required fields");
+    // Validation
+    if (!newReport.location.address) {
+      alert("Please enter the location/address");
+      return;
+    }
+
+    if (user.role === "public" && !newReport.imageFile) {
+      alert("Please upload an image file (JPG or PNG)");
       return;
     }
 
     setSubmitLoading(true);
 
     try {
-      const response = await reportsAPI.createReport(newReport);
-      setReports((prevReports) => [response.data.report, ...prevReports]);
+      const authToken = localStorage.getItem("authToken");
+
+      if (!authToken) {
+        alert("Please login again");
+        router.push("/auth");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("location", JSON.stringify(newReport.location));
+      formData.append(
+        "billboardDetails",
+        JSON.stringify(newReport.billboardDetails)
+      );
+      formData.append(
+        "dateObserved",
+        newReport.dateObserved || new Date().toISOString()
+      );
+
+      if (newReport.imageFile) {
+        formData.append("image", newReport.imageFile);
+      }
+
+      console.log("📤 Submitting report...");
+
+      const response = await fetch("http://localhost:5001/api/reports", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: formData,
+      });
+
+      console.log("📥 Response received:", response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Upload failed");
+      }
+
+      const data = await response.json();
+      console.log("✅ Report created:", data);
+
+      // Update state
+      if (data.report) {
+        setReports((prevReports) => [data.report, ...prevReports]);
+        setStats((prev) => ({
+          ...prev,
+          total: prev.total + 1,
+          pending: prev.pending + 1,
+        }));
+      }
+
+      // Reset form
       setNewReport({
         location: { address: "" },
         billboardDetails: { size: "", type: "", content: "" },
         dateObserved: "",
+        imageFile: null,
       });
       setShowForm(false);
-      alert("✅ Report submitted successfully!");
-      loadReports();
+
+      // ✨ Show interactive success popup
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
+      console.log("✅ Form reset complete");
     } catch (error) {
-      console.error("Submit failed:", error);
-      alert(error.response?.data?.error || "Failed to submit report");
+      console.error("❌ Submit failed:", error);
+
+      if (error.message === "Failed to fetch") {
+        alert(
+          "❌ Cannot connect to server. Please check if the backend is running."
+        );
+      } else {
+        alert(`❌ Submit failed: ${error.message}`);
+      }
     } finally {
+      console.log("🔄 Resetting loading state...");
       setSubmitLoading(false);
     }
   };
@@ -106,6 +204,13 @@ export default function DashboardPage() {
         status: newStatus,
         verificationNotes: `Status changed to ${newStatus}`,
       });
+
+      setReports((prevReports) =>
+        prevReports.map((report) =>
+          report._id === id ? { ...report, status: newStatus } : report
+        )
+      );
+
       await loadReports();
     } catch (error) {
       console.error("Failed to update report:", error);
@@ -119,12 +224,16 @@ export default function DashboardPage() {
     router.push("/auth");
   };
 
+  const removeImage = () => {
+    setNewReport((prev) => ({ ...prev, imageFile: null }));
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -150,6 +259,48 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
+        {/* ✨ Interactive Success Popup */}
+        {showSuccess && (
+          <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 animate-pulse">
+            <div className="bg-gradient-to-r from-green-400 via-blue-500 to-purple-600 text-white font-semibold px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 transition-all duration-700 animate-bounce border-2 border-white">
+              <div className="relative">
+                <svg
+                  className="w-10 h-10 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="11"
+                    className="stroke-white"
+                    strokeWidth="2"
+                    fill="#34D399"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="3"
+                    d="M9 12l2 2 4-4"
+                    className="stroke-white"
+                  />
+                </svg>
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full animate-ping"></div>
+              </div>
+              <div>
+                <div className="text-lg font-bold">🎉 Success!</div>
+                <div className="text-sm opacity-90">
+                  Report submitted successfully
+                </div>
+                <div className="text-xs opacity-75 mt-1">
+                  Government will review it soon ✨
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -218,7 +369,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    📍 Location/Address
+                    📍 Location/Address <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -238,7 +389,7 @@ export default function DashboardPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    📏 Billboard Size
+                    📏 Billboard Size <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={newReport.billboardDetails.size}
@@ -267,7 +418,7 @@ export default function DashboardPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    🏷️ Billboard Type
+                    🏷️ Billboard Type <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={newReport.billboardDetails.type}
@@ -293,7 +444,8 @@ export default function DashboardPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    📅 When did you observe this?
+                    📅 When did you observe this?{" "}
+                    <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="datetime-local"
@@ -311,9 +463,10 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {/* Billboard Description - NOW OPTIONAL */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  📝 Billboard Description
+                  📝 Billboard Description (Optional)
                 </label>
                 <textarea
                   value={newReport.billboardDetails.content}
@@ -326,12 +479,92 @@ export default function DashboardPage() {
                       },
                     })
                   }
-                  placeholder="Describe the billboard and any violations"
+                  placeholder="Describe the billboard and any violations (optional)"
                   rows={4}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
-                  required
                   disabled={submitLoading}
                 />
+              </div>
+
+              {/* Image Upload - NOW REQUIRED */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  📸 Billboard Image{" "}
+                  <span className="text-red-500">* Required</span>
+                </label>
+                <div
+                  {...getRootProps()}
+                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                    isDragActive
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-300 hover:border-blue-400 hover:bg-gray-50"
+                  } ${submitLoading ? "pointer-events-none opacity-50" : ""}`}
+                >
+                  <input {...getInputProps()} disabled={submitLoading} />
+
+                  {newReport.imageFile ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-center text-green-600">
+                        <svg
+                          className="w-8 h-8 mr-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                        <span className="font-medium">Image selected:</span>
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        {newReport.imageFile.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {(newReport.imageFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                      <button
+                        type="button"
+                        onClick={removeImage}
+                        className="text-red-500 hover:text-red-700 text-sm font-medium"
+                        disabled={submitLoading}
+                      >
+                        Remove Image
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-center text-gray-400">
+                        <svg
+                          className="w-10 h-10 mr-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                          />
+                        </svg>
+                      </div>
+                      <div className="text-gray-600">
+                        <p className="text-lg font-medium text-red-600">
+                          {isDragActive
+                            ? "Drop the image here..."
+                            : "⚠️ Image Required - Drag & drop here"}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          or click to select • JPG, PNG • Max 5MB
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex gap-4">
@@ -391,6 +624,7 @@ export default function DashboardPage() {
                     <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Image</th>
                     {user.role === "organization" && (
                       <th className="px-4 py-3">Reporter</th>
                     )}
@@ -431,12 +665,29 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </td>
+                      {/* Different image display for government vs public */}
+                      <td className="px-4 py-3">
+                        {report.imageUrl ? (
+                          <img
+                            src={report.imageUrl} // ✅ Direct Cloudinary URL - no localhost needed!
+                            alt="Billboard"
+                            className="w-12 h-12 object-cover rounded cursor-pointer hover:scale-110 transition-transform"
+                            onClick={() => {
+                              // ✅ Open Cloudinary image in new tab - works for everyone!
+                              window.open(report.imageUrl, "_blank");
+                            }}
+                          />
+                        ) : (
+                          <span className="text-gray-400 text-xs">
+                            No image
+                          </span>
+                        )}
+                      </td>
                       {user.role === "organization" && (
                         <td className="px-4 py-3">
                           {report.reporterId?.name || "Unknown"}
                         </td>
                       )}
-                      {/* ✅ FIXED: Separate conditions for organization and public */}
                     </tr>
                   ))}
                 </tbody>
