@@ -1,99 +1,47 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { authAPI } from "../../lib/api";
 
 export default function AuthPage() {
   const router = useRouter();
   const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
+    name: "",
     email: "",
     password: "",
-    name: "",
     role: "public",
   });
 
-  // Create demo users when component loads
-  useEffect(() => {
-    const existingUsers = JSON.parse(localStorage.getItem("users") || "[]");
-
-    // Only create demo users if they don't exist
-    if (existingUsers.length === 0) {
-      const demoUsers = [
-        {
-          id: "1",
-          name: "John Doe",
-          email: "public@test.com",
-          password: "123456",
-          role: "public",
-        },
-        {
-          id: "2",
-          name: "City Planning Department",
-          email: "gov@test.com",
-          password: "123456",
-          role: "organization",
-        },
-      ];
-
-      localStorage.setItem("users", JSON.stringify(demoUsers));
-      console.log("Demo users created!"); // For debugging
-    }
-  }, []);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
 
-    if (isLogin) {
-      // Login logic
-      const users = JSON.parse(localStorage.getItem("users") || "[]");
-      console.log("Available users:", users); // For debugging
-      console.log("Trying to login with:", formData.email, formData.password); // For debugging
-
-      const user = users.find(
-        (u) => u.email === formData.email && u.password === formData.password
-      );
-
-      if (user) {
-        localStorage.setItem("currentUser", JSON.stringify(user));
-        console.log("Login successful!", user); // For debugging
-        router.push("/dashboard");
+    try {
+      let response;
+      if (isLogin) {
+        response = await authAPI.login({
+          email: formData.email,
+          password: formData.password,
+        });
       } else {
-        alert(
-          "Invalid credentials. Try:\nPublic: public@test.com / 123456\nGov: gov@test.com / 123456"
-        );
+        response = await authAPI.register(formData);
       }
-    } else {
-      // Register logic
-      const users = JSON.parse(localStorage.getItem("users") || "[]");
-      const newUser = {
-        id: Date.now().toString(),
-        name: formData.name,
-        email: formData.email,
-        password: formData.password,
-        role: formData.role,
-      };
 
-      users.push(newUser);
-      localStorage.setItem("users", JSON.stringify(users));
-      localStorage.setItem("currentUser", JSON.stringify(newUser));
+      const { token, user } = response.data;
+
+      // Store auth data in localStorage
+      localStorage.setItem("authToken", token);
+      localStorage.setItem("currentUser", JSON.stringify(user));
+
+      console.log("Success:", user);
       router.push("/dashboard");
-    }
-  };
-
-  // Auto-fill demo credentials for testing
-  const fillDemoCredentials = (type) => {
-    if (type === "public") {
-      setFormData({
-        ...formData,
-        email: "public@test.com",
-        password: "123456",
-      });
-    } else {
-      setFormData({
-        ...formData,
-        email: "gov@test.com",
-        password: "123456",
-      });
+    } catch (error) {
+      console.error("Auth error:", error);
+      alert(error.response?.data?.error || "Authentication failed");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -131,6 +79,7 @@ export default function AuthPage() {
               </label>
               <input
                 type="text"
+                autoComplete="on"
                 value={formData.name}
                 onChange={(e) =>
                   setFormData({ ...formData, name: e.target.value })
@@ -147,6 +96,7 @@ export default function AuthPage() {
             </label>
             <input
               type="email"
+              autoComplete="on"
               value={formData.email}
               onChange={(e) =>
                 setFormData({ ...formData, email: e.target.value })
@@ -168,6 +118,7 @@ export default function AuthPage() {
               }
               className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
               required
+              minLength={6}
             />
           </div>
 
@@ -195,39 +146,19 @@ export default function AuthPage() {
 
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-medium transition duration-200"
+            disabled={loading}
+            className={`w-full py-3 px-4 rounded-lg font-medium transition duration-200 ${
+              loading
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700 text-white"
+            }`}
           >
-            {isLogin ? "Login" : "Register"}
+            {loading ? "Please wait..." : isLogin ? "Login" : "Register"}
           </button>
         </form>
 
-        {/* Demo Account Buttons */}
-        {isLogin && (
-          <div className="mt-6">
-            <p className="text-center text-sm text-gray-600 mb-3">
-              Quick Demo Login:
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => fillDemoCredentials("public")}
-                className="flex-1 bg-green-100 text-green-800 py-2 px-3 rounded text-xs hover:bg-green-200 transition duration-200"
-              >
-                👤 Public User
-              </button>
-              <button
-                onClick={() => fillDemoCredentials("gov")}
-                className="flex-1 bg-purple-100 text-purple-800 py-2 px-3 rounded text-xs hover:bg-purple-200 transition duration-200"
-              >
-                🏢 Government
-              </button>
-            </div>
-          </div>
-        )}
-
         <div className="mt-6 text-center text-xs text-gray-500">
-          <p>Demo Credentials:</p>
-          <p>📧 public@test.com / 🔑 123456 (Public)</p>
-          <p>📧 gov@test.com / 🔑 123456 (Government)</p>
+          <p>🔒 Real authentication with encrypted passwords</p>
         </div>
       </div>
     </div>
