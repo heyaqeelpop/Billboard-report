@@ -38,6 +38,11 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Try the demo accounts:
 
-Public User: email: public@test.com, password: 123456
+Public User: email: abhi@public, password: abhi@public123
 
-Government: email: gov@test.com, password: 123456
+Government: email: abhi@admin, password: abhi@admin123
+
+
+## To run backend :
+cd /Backend
+node server.js
